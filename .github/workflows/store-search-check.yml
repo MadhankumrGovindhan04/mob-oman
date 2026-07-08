@@ -1,0 +1,26 @@
+name: Store Search Availability Check
+
+on:
+  push:
+    branches: [main, master]
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+env:
+  APP_NAME: Brisbane Broncos
+  IOS_BUNDLE_ID: au.com.nrl.brisbanebroncos
+  ANDROID_PACKAGE: com.telstra.nrl.broncos
+  STORE_COUNTRY: au
+
+jobs:
+  check-store-availability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check App Store and Play Store availability
+        run: python3 scripts/check_store_availability.py
