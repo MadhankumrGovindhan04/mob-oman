@@ -30,34 +30,78 @@ jobs:
           fi
           ls -lh "$IPA_PATH"
 
+      - name: Extract IPA
+        run: unzip -q "$IPA_PATH" -d extracted
+
+      - name: Validate build type
+        run: |
+          APP_DIR="extracted/Payload/$APP_NAME"
+          PLIST="$APP_DIR/Info.plist"
+          PLATFORM=$(/usr/libexec/PlistBuddy -c "Print :DTPlatformName" "$PLIST" 2>/dev/null || echo "unknown")
+          MIN_IOS=$(/usr/libexec/PlistBuddy -c "Print :MinimumOSVersion" "$PLIST" 2>/dev/null || echo "15.0")
+          EXEC=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$PLIST")
+          echo "Platform: $PLATFORM"
+          echo "Minimum iOS: $MIN_IOS"
+          echo "Executable: $EXEC"
+          echo "MIN_IOS=$MIN_IOS" >> "$GITHUB_ENV"
+          echo "APP_EXEC=$EXEC" >> "$GITHUB_ENV"
+          if [ "$PLATFORM" = "iphoneos" ]; then
+            echo "::warning::This IPA is a device build (iphoneos). Simulator launch often fails unless you provide a simulator build (iphonesimulator)."
+          fi
+
+      - name: Prepare app for simulator
+        run: |
+          APP_DIR="extracted/Payload/$APP_NAME"
+          rm -f "$APP_DIR/embedded.mobileprovision"
+          /usr/bin/codesign --remove-signature "$APP_DIR" 2>/dev/null || true
+          while IFS= read -r target; do
+            /usr/bin/codesign --force --sign - --timestamp=none "$target"
+          done < <(find "$APP_DIR" \( -name "*.app" -o -name "*.appex" -o -name "*.framework" \) -type d | sort -r)
+          /usr/bin/codesign --force --sign - --deep --timestamp=none "$APP_DIR"
+          codesign -dv "$APP_DIR" 2>&1 | head -20
+
       - name: Boot iOS Simulator
         run: |
+          xcrun simctl shutdown all || true
           RUNTIME=$(xcrun simctl list runtimes available -j \
-            | python3 -c "import json,sys; rs=[r for r in json.load(sys.stdin)['runtimes'] if r['isAvailable'] and r['name'].startswith('iOS')]; print(sorted(rs,key=lambda r: r['version'], reverse=True)[0]['identifier'])")
+            | python3 -c "import json,sys,os; min_ios=os.environ.get('MIN_IOS','15.0'); rs=[r for r in json.load(sys.stdin)['runtimes'] if r['isAvailable'] and r['name'].startswith('iOS') and float(r['version'].split('.')[0]) >= float(min_ios.split('.')[0])]; print(sorted(rs,key=lambda r: r['version'], reverse=True)[0]['identifier'])")
           export RUNTIME
           DEVICE=$(xcrun simctl list devices available -j \
             | python3 -c "import json,sys,os; rid=os.environ['RUNTIME']; ds=[d for d in json.load(sys.stdin)['devices'][rid] if d['isAvailable'] and 'iPhone' in d['name']]; print(sorted(ds,key=lambda d: d['name'])[0]['udid'])")
           echo "Using runtime $RUNTIME and device $DEVICE"
-          xcrun simctl boot "$DEVICE" || true
+          xcrun simctl boot "$DEVICE"
           xcrun simctl bootstatus "$DEVICE" -b
+          open -a Simulator || true
+          sleep 10
           echo "SIMULATOR_UDID=$DEVICE" >> "$GITHUB_ENV"
 
-      - name: Extract IPA
-        run: unzip -q "$IPA_PATH" -d extracted
-
       - name: Install app on simulator
-        run: xcrun simctl install booted extracted/Payload/$APP_NAME
+        run: xcrun simctl install booted "extracted/Payload/$APP_NAME"
 
       - name: Launch app
         id: launch
         run: |
-          PID=$(xcrun simctl launch booted "$BUNDLE_ID")
-          echo "Launched with PID: $PID"
-          echo "pid=$PID" >> "$GITHUB_OUTPUT"
-          sleep 15
+          set +e
+          for attempt in 1 2 3; do
+            echo "Launch attempt $attempt"
+            OUTPUT=$(xcrun simctl launch --console-pty booted "$BUNDLE_ID" 2>&1)
+            STATUS=$?
+            echo "$OUTPUT"
+            if [ $STATUS -eq 0 ]; then
+              PID=$(echo "$OUTPUT" | awk '/^[0-9]+$/ {print; exit}')
+              echo "Launched with PID: ${PID:-unknown}"
+              echo "pid=${PID:-0}" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 8
+          done
+          echo "Launch failed after 3 attempts."
+          xcrun simctl spawn booted log show --last 3m --style compact --predicate 'processImagePath CONTAINS "nrlMobileApp" OR eventMessage CONTAINS "brisbanebroncos"' | tail -100 || true
+          exit 1
 
       - name: Confirm app is running
         run: |
+          sleep 5
           xcrun simctl spawn booted launchctl list | grep -F "$BUNDLE_ID" || \
             pgrep -lf "$BUNDLE_ID" || \
             (echo "App process not found after launch." && exit 1)
