@@ -7,8 +7,9 @@ on:
   workflow_dispatch:
 
 env:
-  IPA_PATH: NRL-QA.ipa
-  BUNDLE_ID: com.pulselive.ent.nrl
+  IPA_PATH: broncos-8e5f1be10a953607afd81198c325d4e3.ipa
+  BUNDLE_ID: au.com.nrl.brisbanebroncos
+  APP_NAME: nrlMobileApp.app
 
 jobs:
   install-and-launch:
@@ -45,7 +46,7 @@ jobs:
         run: unzip -q "$IPA_PATH" -d extracted
 
       - name: Install app on simulator
-        run: xcrun simctl install booted extracted/Payload/NRL-QA.app
+        run: xcrun simctl install booted extracted/Payload/$APP_NAME
 
       - name: Launch app
         id: launch
