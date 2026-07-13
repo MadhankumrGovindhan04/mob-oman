@@ -1,0 +1,57 @@
+name: Play Store Appium Automation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - 'src/**'
+      - 'wdio.conf.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/playstore-automation.yml'
+
+jobs:
+  playstore-automation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm run appium:install-drivers
+
+      - name: Run Appium tests on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis_playstore
+          arch: x86_64
+          profile: pixel_7
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: npm run test:ci
+        env:
+          GOOGLE_EMAIL: ${{ secrets.GOOGLE_EMAIL }}
+          GOOGLE_PASSWORD: ${{ secrets.GOOGLE_PASSWORD }}
+          APP_SEARCH_TERM: brisbanebroncos
+          ANDROID_APP_PACKAGE: com.telstra.nrl.broncos
+          ANDROID_PLATFORM_VERSION: 14
+
+      - name: Upload screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playstore-automation-artifacts
+          path: artifacts/
+          if-no-files-found: warn

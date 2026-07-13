@@ -1,0 +1,29 @@
+{
+  "name": "mob-oman-playstore-automation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Appium + WebdriverIO automation for Google Play Store sign-in and app install",
+  "scripts": {
+    "test": "wdio run wdio.conf.ts",
+    "test:ci": "wdio run wdio.conf.ts --logLevel info",
+    "appium:install-drivers": "appium driver install uiautomator2",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.13.10",
+    "@wdio/appium-service": "^9.12.2",
+    "@wdio/cli": "^9.12.2",
+    "@wdio/local-runner": "^9.12.2",
+    "@wdio/mocha-framework": "^9.12.2",
+    "@wdio/spec-reporter": "^9.12.2",
+    "appium": "^2.18.0",
+    "appium-uiautomator2-driver": "^4.2.1",
+    "expect-webdriverio": "^5.1.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.2"
+  }
+}
