@@ -2,8 +2,9 @@ import { getLogger } from '../helpers/Logger';
 import { captureScreenshot } from '../helpers/ScreenshotHelper';
 import {
   waitForAnyDisplayed,
-  waitForClickable,
   waitForDisplayed,
+  waitForTapReady,
+  waitUntilElementTapReady,
 } from '../helpers/WaitHelper';
 
 export abstract class BasePage {
@@ -41,7 +42,7 @@ export abstract class BasePage {
     timeoutMs = 30000,
   ): Promise<void> {
     const element = await this.findWithRetry(selectors, timeoutMs);
-    await element.waitForClickable({ timeout: timeoutMs });
+    await waitUntilElementTapReady(element, label, timeoutMs);
     getLogger().info(`Clicking ${label}`);
     await element.click();
   }
@@ -53,7 +54,13 @@ export abstract class BasePage {
     timeoutMs = 30000,
   ): Promise<void> {
     const element = await this.findWithRetry(selectors, timeoutMs);
-    await element.waitForEnabled({ timeout: timeoutMs });
+    await browser.waitUntil(
+      async () => element.isEnabled().catch(() => true),
+      {
+        timeout: timeoutMs,
+        timeoutMsg: `Field not enabled within ${timeoutMs}ms: ${label}`,
+      },
+    );
     getLogger().info(`Typing into ${label}`);
     await element.click();
     await element.clearValue();
@@ -84,7 +91,7 @@ export abstract class BasePage {
   }
 
   protected async safeClick(selector: string, label: string): Promise<void> {
-    const element = await waitForClickable(selector);
+    const element = await waitForTapReady(selector);
     getLogger().info(`Clicking ${label}`);
     await element.click();
   }

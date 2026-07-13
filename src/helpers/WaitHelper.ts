@@ -23,14 +23,64 @@ export async function waitForDisplayed(
   return element as unknown as WebdriverIO.Element;
 }
 
+export async function waitForTapReady(
+  selector: string,
+  timeoutMs = 30000,
+  intervalMs = 500,
+): Promise<WebdriverIO.Element> {
+  const element = await browser.waitUntil(
+    async () => {
+      const candidate = await $(selector);
+      if (!(await candidate.isExisting())) {
+        return false;
+      }
+      if (!(await candidate.isDisplayed())) {
+        return false;
+      }
+      const enabled = await candidate.isEnabled().catch(() => true);
+      return enabled ? candidate : false;
+    },
+    {
+      timeout: timeoutMs,
+      interval: intervalMs,
+      timeoutMsg: `Element not ready to tap within ${timeoutMs}ms: ${selector}`,
+    },
+  );
+
+  return element as unknown as WebdriverIO.Element;
+}
+
+/** Native Appium alias — do not use browser-only waitForClickable. */
 export async function waitForClickable(
   selector: string,
   timeoutMs = 30000,
   intervalMs = 500,
 ): Promise<WebdriverIO.Element> {
-  const element = await waitForDisplayed(selector, timeoutMs, intervalMs);
-  await element.waitForClickable({ timeout: timeoutMs, interval: intervalMs });
-  return element;
+  return waitForTapReady(selector, timeoutMs, intervalMs);
+}
+
+export async function waitUntilElementTapReady(
+  element: WebdriverIO.Element,
+  label: string,
+  timeoutMs = 30000,
+  intervalMs = 500,
+): Promise<void> {
+  await browser.waitUntil(
+    async () => {
+      if (!(await element.isExisting())) {
+        return false;
+      }
+      if (!(await element.isDisplayed())) {
+        return false;
+      }
+      return element.isEnabled().catch(() => true);
+    },
+    {
+      timeout: timeoutMs,
+      interval: intervalMs,
+      timeoutMsg: `Element not ready to tap within ${timeoutMs}ms: ${label}`,
+    },
+  );
 }
 
 export async function waitUntilCondition(

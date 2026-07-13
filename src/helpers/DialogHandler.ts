@@ -1,5 +1,5 @@
 import { getLogger } from './Logger';
-import { waitForAnyDisplayed, waitForClickable } from './WaitHelper';
+import { waitForAnyDisplayed, waitForTapReady } from './WaitHelper';
 
 const dismissSelectors = [
   '//*[@text="Allow"]',
@@ -94,8 +94,8 @@ export class DialogHandler {
     }
 
     try {
-      await waitForClickable('//*[@text="Next"]', 3000);
-      await $('//*[@text="Next"]').click();
+      const next = await waitForTapReady('//*[@text="Next"]', 3000);
+      await next.click();
     } catch {
       getLogger().info('Next button not visible.');
     }
