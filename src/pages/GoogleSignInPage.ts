@@ -11,9 +11,9 @@ export class GoogleSignInPage extends BasePage {
 
   private readonly playStoreSignInSelectors = [
     '//*[@resource-id="com.android.vending:id/unauth_sign_in_button"]',
+    '//*[@text="SIGN IN"]',
     '//*[@text="Sign in"]',
     '//*[@content-desc="Sign in"]',
-    '//*[contains(@text,"Sign in to") and @clickable="true"]',
     '//*[contains(@text,"Sign in to")]',
   ];
 
@@ -30,14 +30,22 @@ export class GoogleSignInPage extends BasePage {
 
   private readonly nativeEmailSelectors = [
     '//*[@resource-id="identifierId"]',
+    '//*[@resource-id="com.google.android.gms:id/account_name"]',
     '//*[@content-desc="Email or phone"]',
     '//*[@text="Email or phone"]',
+    '//*[@package="com.google.android.gms"]//android.widget.EditText[1]',
+    '//*[@package="com.google.android.gms"]//android.widget.AutoCompleteTextView[1]',
+    'android=new UiSelector().packageName("com.google.android.gms").className("android.widget.EditText").instance(0)',
+    'android=new UiSelector().packageName("com.google.android.gms").className("android.widget.AutoCompleteTextView").instance(0)',
     '//android.widget.EditText[1]',
   ];
 
   private readonly nativePasswordSelectors = [
     '//*[@resource-id="password"]',
     '//*[@text="Enter your password"]',
+    '//*[@package="com.google.android.gms"]//android.widget.EditText[@password="true"]',
+    '//*[@package="com.google.android.gms"]//android.widget.EditText[2]',
+    'android=new UiSelector().packageName("com.google.android.gms").className("android.widget.EditText").instance(1)',
     '//android.widget.EditText[@password="true"]',
     '//android.widget.EditText[1]',
   ];
@@ -66,13 +74,14 @@ export class GoogleSignInPage extends BasePage {
         return;
       }
 
-      const signedInViaSettings = await this.trySignInViaAndroidSettings(
-        email,
-        password,
-      );
-      if (!signedInViaSettings) {
-        logger.info('Settings sign-in path did not complete, trying Play Store UI.');
-        await this.trySignInViaPlayStore(email, password);
+      let signedIn = await this.trySignInViaPlayStore(email, password);
+      if (!signedIn) {
+        logger.info('Play Store sign-in path did not complete, trying Settings.');
+        signedIn = await this.trySignInViaAndroidSettings(email, password);
+      }
+
+      if (!signedIn) {
+        throw new Error('Google sign-in did not complete on Play Store.');
       }
 
       await browser.activateApp('com.android.vending');
@@ -85,6 +94,22 @@ export class GoogleSignInPage extends BasePage {
 
       logger.info('Google sign-in completed successfully.');
     });
+  }
+
+  private async trySignInViaPlayStore(
+    email: string,
+    password: string,
+  ): Promise<boolean> {
+    await browser.activateApp('com.android.vending');
+    await this.dialogHandler.dismissKnownPopups();
+    await this.clickWithRetry(this.playStoreSignInSelectors, 'Play Store SIGN IN');
+    await this.dialogHandler.dismissKnownPopups();
+    await this.waitForSignInSurface();
+    await this.enterCredentials(email, password);
+    await this.dialogHandler.acceptTermsIfPresent();
+    await this.dialogHandler.dismissKnownPopups();
+    await browser.activateApp('com.android.vending');
+    return this.isSignedIn();
   }
 
   private async trySignInViaAndroidSettings(
@@ -113,35 +138,19 @@ export class GoogleSignInPage extends BasePage {
 
     await this.clickWithRetry(this.googleAccountTypeSelectors, 'Google account');
     await this.dialogHandler.dismissKnownPopups();
-
     await this.waitForSignInSurface();
     await this.enterCredentials(email, password);
     await this.dialogHandler.acceptTermsIfPresent();
     await this.dialogHandler.dismissKnownPopups();
-
     await browser.activateApp('com.android.vending');
     return this.isSignedIn();
-  }
-
-  private async trySignInViaPlayStore(
-    email: string,
-    password: string,
-  ): Promise<void> {
-    await browser.activateApp('com.android.vending');
-    await this.dialogHandler.dismissKnownPopups();
-    await this.clickWithRetry(this.playStoreSignInSelectors, 'Play Store Sign in');
-    await this.dialogHandler.dismissKnownPopups();
-    await this.waitForSignInSurface();
-    await this.enterCredentials(email, password);
-    await this.dialogHandler.acceptTermsIfPresent();
-    await this.dialogHandler.dismissKnownPopups();
   }
 
   private async waitForSignInSurface(): Promise<void> {
     await waitUntilCondition(
       'Google sign-in surface visible',
       async () => {
-        if (await this.isAnyVisible(this.nativeEmailSelectors)) {
+        if (await this.hasCredentialInputs()) {
           return true;
         }
 
@@ -153,8 +162,8 @@ export class GoogleSignInPage extends BasePage {
         const activity = await browser.getCurrentActivity();
         const pkg = await browser.getCurrentPackage();
         return (
-          pkg !== 'com.android.vending' ||
-          Boolean(activity && !activity.includes('Unauthenticated'))
+          pkg === 'com.google.android.gms' ||
+          Boolean(activity && activity.includes('MinuteMaid'))
         );
       },
       45000,
@@ -162,8 +171,51 @@ export class GoogleSignInPage extends BasePage {
     );
   }
 
+  private async prepareGmsSignInScreen(): Promise<void> {
+    await this.contextHelper.switchToNative();
+    const safeIntermediateSelectors = [
+      '//*[@text="Add another account"]',
+      '//*[@text="Use another account"]',
+      '//*[@resource-id="com.google.android.gms:id/add_account"]',
+    ];
+
+    for (const selector of safeIntermediateSelectors) {
+      const element = await $(selector);
+      if (await element.isExisting()) {
+        if (await element.isDisplayed()) {
+          getLogger().info(`Tapping intermediate GMS selector: ${selector}`);
+          await element.click();
+          return;
+        }
+      }
+    }
+  }
+
+  private async hasCredentialInputs(): Promise<boolean> {
+    if (await this.isAnyVisible(this.nativeEmailSelectors)) {
+      return true;
+    }
+    const editTexts = await this.getVisibleInputFields();
+    return editTexts.length > 0;
+  }
+
+  private async getVisibleInputFields(): Promise<WebdriverIO.Element[]> {
+    await this.contextHelper.switchToNative();
+    const candidates = await $$(
+      '//android.widget.EditText | //android.widget.AutoCompleteTextView',
+    );
+    const visible: WebdriverIO.Element[] = [];
+    for (const candidate of await candidates.getElements()) {
+      if (await candidate.isDisplayed()) {
+        visible.push(candidate);
+      }
+    }
+    return visible;
+  }
+
   private async enterCredentials(email: string, password: string): Promise<void> {
     const logger = getLogger();
+    await this.prepareGmsSignInScreen();
 
     if (await this.tryWebViewCredentials(email, password)) {
       logger.info('Entered credentials via WebView.');
@@ -175,10 +227,53 @@ export class GoogleSignInPage extends BasePage {
       return;
     }
 
+    if (await this.tryVisibleInputFields(email, password)) {
+      logger.info('Entered credentials via visible input scan.');
+      return;
+    }
+
     await captureScreenshot('google_sign_in_fields_not_found');
     throw new Error(
       'Could not locate Google email/password fields in native or WebView contexts.',
     );
+  }
+
+  private async tryVisibleInputFields(
+    email: string,
+    password: string,
+  ): Promise<boolean> {
+    await this.contextHelper.switchToNative();
+    const emailInputs = await this.getVisibleInputFields();
+    if (emailInputs.length === 0) {
+      return false;
+    }
+
+    getLogger().info(`Found ${emailInputs.length} visible input field(s).`);
+    await emailInputs[0].click();
+    await emailInputs[0].setValue(email);
+    await this.dialogHandler.tapNextIfVisible();
+    await this.dialogHandler.dismissKnownPopups();
+
+    await waitUntilCondition(
+      'password input visible after email entry',
+      async () => (await this.getVisibleInputFields()).length > 0,
+      30000,
+    );
+
+    const passwordInputs = await this.getVisibleInputFields();
+    let passwordField = passwordInputs[passwordInputs.length - 1];
+    for (const field of passwordInputs) {
+      const isPassword = await field.getAttribute('password');
+      if (isPassword === 'true') {
+        passwordField = field;
+        break;
+      }
+    }
+
+    await passwordField.click();
+    await passwordField.setValue(password);
+    await this.dialogHandler.tapNextIfVisible();
+    return true;
   }
 
   private async tryNativeCredentials(
@@ -219,6 +314,7 @@ export class GoogleSignInPage extends BasePage {
       '#identifierId',
       'input[type="email"]',
       'input[name="identifier"]',
+      'input[name="Email"]',
     ];
     const passwordSelectors = [
       'input[name="Passwd"]',
@@ -226,7 +322,14 @@ export class GoogleSignInPage extends BasePage {
       '#password',
       'input[name="password"]',
     ];
-    const nextSelectors = ['#identifierNext', '#passwordNext', 'button[type="button"]'];
+    const nextSelectors = [
+      '#identifierNext',
+      '#passwordNext',
+      'button[type="button"]',
+      'button[type="submit"]',
+    ];
+
+    await this.contextHelper.refreshContexts(15000);
 
     const emailEntered = await this.contextHelper.runInEachWebView(async () => {
       for (const selector of emailSelectors) {
@@ -254,6 +357,8 @@ export class GoogleSignInPage extends BasePage {
       await this.contextHelper.switchToNative();
       return false;
     }
+
+    await this.contextHelper.refreshContexts(15000);
 
     await waitUntilCondition(
       'WebView password field visible',

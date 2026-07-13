@@ -53,6 +53,8 @@ export const config = {
       'appium:chromedriverAutodownload': true,
       'appium:ensureWebviewsHavePages': true,
       'appium:webviewDevtoolsPort': 9222,
+      'appium:enableWebviewDetailsCollection': true,
+      'appium:enableMultiWindows': true,
     },
   ],
 
