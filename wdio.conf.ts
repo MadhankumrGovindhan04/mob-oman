@@ -50,6 +50,9 @@ export const config = {
       'appium:uiautomator2ServerInstallTimeout': 120000,
       'appium:adbExecTimeout': 120000,
       'appium:ignoreHiddenApiPolicyError': true,
+      'appium:chromedriverAutodownload': true,
+      'appium:ensureWebviewsHavePages': true,
+      'appium:webviewDevtoolsPort': 9222,
     },
   ],
 
